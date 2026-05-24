@@ -752,12 +752,7 @@ void RandomPlayerbotFactory::CreateRandomBots()
     //LoginDatabase.PExecute("UPDATE account SET expansion = '%u' where username like '%s%%'", 2, sPlayerbotAIConfig.randomBotAccountPrefix.c_str());
 
     int totalRandomBotChars = 0;
-    uint32 totalCharCount = sPlayerbotAIConfig.randomBotAccountCount
-#ifdef MANGOSBOT_TWO
-        * 10;
-#else
-        * 9;
-#endif
+    uint32 totalCharCount = sPlayerbotAIConfig.randomBotAccountCount;
 
     sLog.outString("Using shared freeNames from cache...");
 
@@ -827,13 +822,7 @@ void RandomPlayerbotFactory::CreateRandomBots()
 
     sLog.outString("Creating random bot characters...");
     uint32 botsCreated = 0;
-    BarGoLink bar1(sPlayerbotAIConfig.randomBotAccountCount*
-#ifdef MANGOSBOT_TWO
-        10
-#else
-        9
-#endif
-    );
+    BarGoLink bar1(sPlayerbotAIConfig.randomBotAccountCount);
 
     // Shallow copy of the fixed config so we can modify it
     std::map<std::pair<uint8, uint8>, uint32> remaining = sPlayerbotAIConfig.fixedClassRaceCounts;
@@ -853,88 +842,76 @@ void RandomPlayerbotFactory::CreateRandomBots()
         sPlayerbotAIConfig.randomBotAccounts.push_back(accountId);
 
         int count = sAccountMgr.GetCharactersCount(accountId);
-#ifdef MANGOSBOT_TWO
-        if (count >= 10)
-#else
-        if (count >= 9)
-#endif
+if (count >= 1)
         {
             totalRandomBotChars += count;
             continue;
         }
 
-	RandomPlayerbotFactory factory(accountId);
-	if (sPlayerbotAIConfig.useFixedClassRaceCounts)
-	{
+RandomPlayerbotFactory factory(accountId);
+
+if (sPlayerbotAIConfig.useFixedClassRaceCounts)
+{
+    uint32 created = 0;
+    uint32 maxAllowed = 1 - count;
+
+    while (!remaining.empty() && created < maxAllowed)
+    {
+        std::vector<std::pair<uint8, uint8>> shuffledKeys;
+
+        for (const auto& entry : remaining)
+            shuffledKeys.push_back(entry.first);
+
+        std::random_device rnd;
+        std::mt19937 rng(rnd());
+
+        std::shuffle(shuffledKeys.begin(), shuffledKeys.end(), rng);
+
+        for (const auto& key : shuffledKeys)
+        {
+            if (created >= maxAllowed)
+                break;
+
+            uint8 cls = key.first;
+            uint8 race = key.second;
+
+            if (!((1 << (cls - 1)) & CLASSMASK_ALL_PLAYABLE) ||
+                !sChrClassesStore.LookupEntry(cls))
+                continue;
+
 #ifdef MANGOSBOT_TWO
-	    uint32 maxAllowed = 10 - count;
+            if (cls == 10)
+                continue;
 #else
-	    uint32 maxAllowed = 9 - count;
-#endif
-	    uint32 created = 0;
-
-	    while (!remaining.empty() && created < maxAllowed)
-	    {
-	        std::vector<std::pair<uint8, uint8>> shuffledKeys;
-	        for (const auto& entry : remaining)
-	            shuffledKeys.push_back(entry.first);
-
-	        // Shuffle the keys of the map
-	        std::random_device rnd;
-		std::mt19937 rng(rnd()); // Mersenne Twister RNG
-		std::shuffle(shuffledKeys.begin(), shuffledKeys.end(), rng);
-
-	        for (const auto& key : shuffledKeys)
-	        {
-	            if (created >= maxAllowed)
-	                break;
-
-	            uint8 cls = key.first;
-	            uint8 race = key.second;
-
-	            if (!((1 << (cls - 1)) & CLASSMASK_ALL_PLAYABLE) || !sChrClassesStore.LookupEntry(cls))
-	                continue;
-
-#ifdef MANGOSBOT_TWO
-	            if (cls == 10)
-	                continue;
-#else
-	            if (cls == 10 || cls == 6)
-	                continue;
+            if (cls == 10 || cls == 6)
+                continue;
 #endif
 
-	            if (factory.CreateRandomBot(cls, race))
-	            {
-	                created++;
-	                botsCreated++;
-	                bar1.step();
-	                if (--remaining[key] == 0)
-	                    remaining.erase(key);
-	            }
-	        }
-	    }
-	}
-	else
-	{
-            for (uint8 cls = CLASS_WARRIOR; cls < MAX_CLASSES - count; ++cls)
+            if (factory.CreateRandomBot(cls, race))
             {
-                // skip nonexistent classes
-                if (!((1 << (cls - 1)) & CLASSMASK_ALL_PLAYABLE) || !sChrClassesStore.LookupEntry(cls))
-                    continue;
+                created++;
+                botsCreated++;
+                bar1.step();
 
-#ifdef MANGOSBOT_TWO
-                if (cls != 10)
-#else
-                if (cls != 10 && cls != 6)
-#endif
-                {
-                    uint8 rclss = factory.GetRandomClass();
-                    botsCreated++;
-                    factory.CreateRandomBot(rclss);
-                    bar1.step();
-                }
+                if (--remaining[key] == 0)
+                    remaining.erase(key);
             }
-	}
+        }
+    }
+}
+else
+{
+    if (count < 1)
+    {
+        uint8 rclss = factory.GetRandomClass();
+
+        if (factory.CreateRandomBot(rclss))
+        {
+            botsCreated++;
+            bar1.step();
+        }
+    }
+}
 
         totalRandomBotChars += sAccountMgr.GetCharactersCount(accountId);
     }
@@ -953,11 +930,7 @@ void RandomPlayerbotFactory::CreateRandomBots()
 
 	    sLog.outError(" - Class %u, Race %u: %u bots remaining", cls, race, count);
 	}
-#ifdef MANGOSBOT_TWO
-	uint32 missingAccounts = (totalCount + 9) / 10;
-#else
-        uint32 missingAccounts = (totalCount + 8) / 9;
-#endif
+        uint32 missingAccounts = totalCount;
 	sLog.outError("You need at least %u additional account(s) to fill the remaining fixed class/race combinations.", missingAccounts);
     }
 
